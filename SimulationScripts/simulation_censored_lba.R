@@ -1,6 +1,14 @@
 library(cmdstanr)
 library(rtdists)
 library(sft)
+library(here)
+
+print(here)
+paths = list(
+  sim = here("SimulationScripts"),
+  fig = here("Figures")
+)
+print(paths)
 
 #mod <- cmdstan_model(file.path("../analysis/GP_LBA.stan"))
 mod_cens <- cmdstan_model(file.path("../analysis/GP_LBA_diff2.stan"))
