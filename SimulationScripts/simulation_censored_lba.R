@@ -18,7 +18,7 @@ PLOT <- FALSE
 
 n_iter <- 10
 
-A <- 1
+A <- 100#1
 b <- 1.4
 t0 <- .3
 mean_v <- 1
