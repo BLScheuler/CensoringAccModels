@@ -18,10 +18,10 @@ functions {
   //    terms[1] = log(A-muT) - log(A) + std_normal_lcdf((muT-A)/(rt-t0));
   //    terms[2] = log(muT) - log(A) + std_normal_lcdf(muT/(rt-t0));
   //    terms[3] = log(t0-rt) - log(A) + std_normal_lpdf((muT-A)/(rt-t0));
-  //    terms[4] = log(rt-t0) - log(A) + std_normal_lpdf(muT/(rt-t0));   
+  //    terms[4] = log(rt-t0) - log(A) + std_normal_lpdf(muT/(rt-t0));
   //  return(-log_sum_exp(terms));
   //}
-  real lba_cumhaz(real rt, real t0, real bMinusA, real A, real v) { 
+  real lba_cumhaz(real rt, real t0, real bMinusA, real A, real v) {
     real muT;
     real b;
     array[4] real terms;
@@ -40,7 +40,7 @@ functions {
     terms[1] = (A-muT)/A * std_normal_cdf((muT-A)/(rt-t0));
     terms[2] = muT/A * std_normal_cdf(muT/(rt-t0));
     terms[3] = -(rt-t0)/A * exp(std_normal_lpdf((muT-A)/(rt-t0)));
-    terms[4] = (rt-t0)/A * exp(std_normal_lpdf(muT/(rt-t0)));   
+    terms[4] = (rt-t0)/A * exp(std_normal_lpdf(muT/(rt-t0)));
     return(-log(sum(terms)));
   }
 }
@@ -49,10 +49,10 @@ data {
   array[N] real x;
   vector[N] y;
 }
-transformed data { 
+transformed data {
   matrix[N,N] Kbm;
-  for (n in 1:N) { 
-    for (m in 1:N) { 
+  for (n in 1:N) {
+    for (m in 1:N) {
       Kbm[n, m] = min([x[n], x[m]]);
     }
   }

@@ -1,16 +1,24 @@
-library(rtdists)
-library(sft)
-library(survival)
-library(cmdstanr)
-library(here)
+## Load libraries ----
+{
+  library(rtdists)
+  library(sft)
+  library(survival)
+  library(cmdstanr)
+  library(here)
+}
 
-# mod_cens <- cmdstan_model(file.path("../analysis/GP_LBA_diff2.stan"))
-mod_norm <- cmdstan_model(
-  here("SimulationScripts", "StanModels", "GP_LBA.stan")
-)
+## Load Models ----
+{
+  # mod_cens <- cmdstan_model(
+  #   here("SimulationScripts", "StanModels", "GP_LBA_diff2.stan")
+  # )
+  mod_cens <- cmdstan_model(
+    here("SimulationScripts", "StanModels", "GP_LBA.stan")
+  )
+}
 
 
-
+## Set LBA parameters ----
 {
   n_iter <- 10 # should be on par for estimating var
   A <- 1 # accumulation starting point
@@ -19,21 +27,22 @@ mod_norm <- cmdstan_model(
   mean_v <- 1 # drift rate mean
   sd_v <- 1 # drift rate sd
   true_params <- c(A, b, t0, mean_v) # create a vector for the true parameters
-  true_mat <- matrix(rep(true_params, each = n_iter), 10, 4)
+  true_mat <- matrix(rep(true_params, each = n_iter), n_iter, 4)
 }
 
-# bias & precision
+## Setup bias & precision values to save ----
 {
   bias <- c()
   prec <- c()
-  bias_n <- c()
-  prec_n <- c()
+  # bias_n <- c()
+  # prec_n <- c()
 
-  # sample sizes that will be tested
+  ## Set simulation parameters
   n_samp_vec <- c(50, 100, 200, 400)
-  censor_vec <- .7 # seq(.7, 95, by = 0.05)
+  censor_vec <- seq(0.7, 0.95, by = 0.05)
 }
 
+## Define Hazard Functions ----
 estimateNAH <- function(RT, CR = NULL) {
   nt <- length(RT)
   if (is.null(CR) | length(CR) != nt) {
@@ -53,7 +62,7 @@ estimateNAH <- function(RT, CR = NULL) {
   return(list(H = H, Var = H.v))
 }
 
-estimateKM <- function(RT, CR = NULL) {
+estimateKMH <- function(RT, CR = NULL) {
   nt <- length(RT)
   if (is.null(CR) | length(CR) != nt) {
     CR <- rep(1, nt)
@@ -76,21 +85,16 @@ estimateKM <- function(RT, CR = NULL) {
   return(list(H = H, Var = H_v))
 }
 
-# Outer Loop: different sample sizes
+## Simulation loop ----
 for (n_samples in n_samp_vec) {
-  # Middle Loop: different censoring levels
   for (censoring in censor_vec) {
     ## NOTE TO BRY: try changing what will be censored! eg., 0.05 to 0.3
-    # Create matrix for parameter estimates
-    all_params_n <- matrix(NA, n_iter, 4)
-    # Inner Loop: Repeating the actual simulation for each n_iter (estimate variance due to data)
+    all_params <- matrix(NA, n_iter, 4)
     for (i in 1:n_iter) {
-      # Use normal distributions of LBA drift rates to generate RTs
+      ## NOTE TO BRY: change code to censoring early tail instead of late;
       rt <- rlba_norm(n_samples, A, b, t0, mean_v, sd_v, posdrift = TRUE)
-      # Note: posdrift requires df rates to be pos
-
-      # Pull the RTs that would be censored
       censored <- rt[, "rt"] > quantile(rt[, "rt"], censoring)
+
       # Replace all censored RTs with the max RT from censoring limit
       rt[censored, ] <- matrix(
         rep(
@@ -99,22 +103,33 @@ for (n_samples in n_samp_vec) {
         ),
         nrow = sum(censored), ncol = 2
       )
-      ## NOTE TO BRY: change code to censoring early tail instead of late; change < to > as needed in line 31
 
       tvec <- sort(unique(rt[, "rt"]))
       RT <- rt[, "rt"]
       CR <- rt[, "response"]
       # nahData <- estimateNAH(RT=RT, CR=CR)
       # Kaplan-Meier
-      kmhData <- estimateKM(RT = RT, CR = CR)
-
-      # plot(nahData$H)apply(rbind(sqrt((-apply(bias_n[, 3:6], 2, min))**2), apply(bias_n[, 3:6], 2, max)), 2, max)
-      # plot(kmhData$H)
-
+      kmhData <- estimateKMH(RT = RT, CR = CR)
       stan_dat <- list(x = tvec, y = kmhData$H(tvec), N = length(tvec))
-      # Create a subset where data is correct/ censored, and all the uncensored disappears (aka: how bad are things?)
-      RT <- rt[rt[, "response"] == 1, ]
+      fit_cens <- mod_cens$optimize(data = stan_dat, iter = 1E6)
 
+      # Pull parameter estimates from the Stan model
+      tmp_params <- c(
+        fit_cens$summary(
+          # c("A", "bMinusA", "tau", "v[1]")
+          c("A", "bMinusA", "t0", "mean_v")
+        )[, 2]
+      )$estimate
+
+      # Create a list of parameter estimates
+      all_params[i, ] <- c(
+        tmp_params[1], tmp_params[2] + tmp_params[1], tmp_params[3:4]
+      )
+
+      # Haven't I just done the censored data? 
+      # We also do not have the below Stan model
+      # Create a censored data subset with only correct responses
+      # RT <- rt[rt[, "response"] == 1, ]
       # Pull the data we will fit with Stan model
       # stan_dat <- list(
       #   RT = RT,
@@ -122,45 +137,28 @@ for (n_samples in n_samp_vec) {
       #   NUM_CHOICES = 1
       # )
 
-      # Stan Model (see GP_LBA file)
-      fit_optim2 <- mod_norm$optimize(data = stan_dat, iter = 1E6)
-      # fit_optim2$print()
-
-      # Pull parameter estimates from the Stan model
-      tmp_params <- c(
-        fit_optim2$summary(
-          # c("A", "bMinusA", "tau", "v[1]")
-          c("A", "bMinusA", "t0", "mean_v")
-        )[, 2]
-      )$estimate
-
-      # Create a list  for the parameter estimates
-      ## NOTE: why are we adding A & bMinusA?
-      all_params_n[i, ] <- c(
-        tmp_params[1], tmp_params[2] + tmp_params[1], tmp_params[3:4]
-      )
     }
 
     # Bias: Estimated - True with means
-    bias_n <- rbind(
-      bias_n,
+    bias <- rbind(
+      bias,
       c(
         n_samples,
         censoring,
         apply(
-          all_params_n - true_mat, 2, mean
+          all_params - true_mat, 2, mean
         )
       )
     )
 
     # Precision: Estimated - True with sd
-    prec_n <- rbind(
-      prec_n,
+    prec <- rbind(
+      prec,
       c(
         n_samples,
         censoring,
         apply(
-          all_params_n - true_mat, 2, sd
+          all_params - true_mat, 2, sd
         )
       )
     )
@@ -168,7 +166,6 @@ for (n_samples in n_samp_vec) {
 }
 
 # Create a file for the results
-save( # bias, prec,
-  bias_n, prec_n,
+save(bias, prec,
   file = here("Data", "simstudy.Rdata")
 )
