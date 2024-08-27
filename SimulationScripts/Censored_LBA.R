@@ -17,7 +17,7 @@ true_params <- c(A, b, t0, mean_v)  #create a vector for the true parameters
 true_mat <- matrix(rep(true_params, each=n_iter), 10, 4)
 
 # mod_cens <- cmdstan_model(file.path("../analysis/GP_LBA_diff2.stan"))
-mod_norm <- cmdstan_model(here("SimulationScripts", "StanModels", "GP_LBA.stan"))
+mod_norm <- cmdstan_model(here("SimulationScripts", "StanModels", "LBA.stan"))
 
 #bias & precision 
 bias_n <- c()
@@ -73,7 +73,7 @@ for (n_samples in n_samp_vec) {
 }
 
 #Create a file for the results
-save(bias, prec, bias_n, prec_n, file="simstudy_20240509.Rdata")
+save(bias, prec, bias_n, prec_n, file="simstudy_Pract1.Rdata")
 
 
 ##PLOT IT OUT
