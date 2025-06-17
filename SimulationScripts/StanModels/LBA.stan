@@ -179,7 +179,7 @@ model {
   RT ~ lba(bMinusA,A,v,s,tau);
 }
 
-generated quantities {
-  vector[2] pred;
-  pred = lba_rng(bMinusA,A,v,s,tau);
-}
+//generated quantities {
+//  vector[2] pred;
+//  pred = lba_rng(bMinusA,A,v,s,tau);
+//}
