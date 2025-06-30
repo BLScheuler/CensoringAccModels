@@ -1,0 +1,246 @@
+functions{
+  
+  real lba_pdf(real t, real b, real A, real v, real s){
+    //PDF of the LBA model
+    
+    real b_A_tv_ts;
+    real b_tv_ts;
+    real term_1;
+    real term_2;
+    real term_3;
+    real term_4;
+    real pdf;
+    
+    b_A_tv_ts = (b - A - t*v)/(t*s);
+    b_tv_ts = (b - t*v)/(t*s);
+    term_1 = v*Phi(b_A_tv_ts);
+    term_2 = s*exp(normal_lpdf(b_A_tv_ts|0,1)); 
+    term_3 = v*Phi(b_tv_ts);
+    term_4 = s*exp(normal_lpdf(b_tv_ts|0,1)); 
+    pdf = (1/A)*(-term_1 + term_2 + term_3 - term_4);
+    
+    return pdf;
+  }
+  
+  real lba_cdfx(real t, real b, real A, real v, real s){
+    //CDF of the LBA model
+    
+    real b_A_tv;
+    real b_tv;
+    real ts;
+    real term_1;
+    real term_2;
+    real term_3;
+    real term_4;
+    real cdf;	
+    
+    b_A_tv = b - A - t*v;
+    b_tv = b - t*v;
+    ts = t*s;
+    term_1 = b_A_tv/A * Phi(b_A_tv/ts);	
+    term_2 = b_tv/A   * Phi(b_tv/ts);
+    term_3 = ts/A     * exp(normal_lpdf(b_A_tv/ts|0,1)); 
+    term_4 = ts/A     * exp(normal_lpdf(b_tv/ts|0,1)); 
+    cdf = 1 + term_1 - term_2 + term_3 - term_4;
+    return cdf;
+
+  }
+
+  real lba_lpdfx(real t, real b, real A, real v, real s){
+    //Log PDF of the LBA model
+    
+    real b_A_tv_ts;
+    real b_tv_ts;
+    real l_term_1;
+    real l_term_2;
+    real l_term_3;
+    real l_term_4;
+    real lpdf;
+    
+    b_A_tv_ts = (b - A - t*v)/(t*s);
+    b_tv_ts = (b - t*v)/(t*s);
+
+    l_term_1 = log(v) + std_normal_lcdf(b_A_tv_ts);
+    l_term_2 = log(s) + std_normal_lpdf(b_A_tv_ts); 
+    l_term_3 = log(v) + std_normal_lcdf(b_tv_ts);
+    l_term_4 = log(s) + std_normal_lpdf(b_tv_ts); 
+
+    lpdf = -log(A)+ log_diff_exp(log_sum_exp(l_term_2, l_term_3), log_sum_exp(l_term_1, l_term_4));
+    
+    return lpdf;
+  }
+
+  real lba_lsurvx(real t, real b, real A, real v, real s){
+    //Log survivor of the LBA model
+    
+    real b_A_tv;
+    real b_tv;
+    real ts;
+    real term_1;
+    real term_2;
+    real term_3;
+    real l_surv;	
+    
+    b_A_tv = (b - A - t*v);
+    b_tv = (b - t*v);
+    ts = t*s;
+
+    term_1 = - (b_A_tv) / A * Phi((b_A_tv)/ts) ;
+    term_2 = (b_tv)/A * Phi(b_tv/ts) ;
+    term_3 =  ts/A * (exp(std_normal_lpdf(b_tv/ts))-exp(std_normal_lpdf(b_A_tv/ts)));
+
+    l_surv = log(term_1+term_2+term_3);
+    if(l_surv > 0) l_surv = 0;
+    return l_surv;
+  }
+  
+  real lba_lpdf(matrix RT, real bMinusA, real A, vector v, real s, real tau, real lower_cutoff, real upper_cutoff){
+    real t;
+    real b;
+    real lsurv;
+    real lpdf;		
+    vector[rows(RT)] lprob;
+    real out;
+    real l_prob_neg;
+
+    b = A + bMinusA;
+    for (i in 1:rows(RT)){
+      t = RT[i,1] - tau;
+      if(RT[i,1] <= lower_cutoff) { // fast censoring
+        for(j in 1:num_elements(v)){
+          lsurv = lsurv + lba_lsurvx(.2-tau, b, A, v[j], s);
+        }
+        lprob[i] = log1m_exp(lsurv);		
+      }else if(RT[i,1] >= upper_cutoff){ // slow censoring
+        lsurv = 0;
+        for(j in 1:num_elements(v)){
+          lsurv = lsurv + lba_lsurvx(upper_cutoff, b, A, v[j], s);
+        }
+        l_prob_neg = 0;
+        for(j in 1:num_elements(v)){
+          l_prob_neg = std_normal_lcdf(-v[j]/s) + l_prob_neg;    
+        }
+        lprob[i] = lsurv - log1m_exp(l_prob_neg);		
+      }else if(t > 0){ // non-censored responses
+        lsurv = 0;
+        lpdf = 0;
+        
+        for(j in 1:num_elements(v)){
+          if(RT[i,2] == j){
+            lpdf = lba_lpdfx(t, b, A, v[j], s);
+          }else{	
+            lsurv = lsurv + lba_lsurvx(t, b, A, v[j], s);
+          }
+        }
+        l_prob_neg = 0;
+        for(j in 1:num_elements(v)){
+          l_prob_neg = std_normal_lcdf(-v[j]/s) + l_prob_neg;    
+        }
+        lprob[i] = lpdf + lsurv - log1m_exp(l_prob_neg);		
+        
+      }else{
+        print(tau);
+        lprob[i] = negative_infinity();			
+      }		
+    }
+    out = sum(lprob);
+    return out;		
+  }
+  
+  vector lba_rng(real bMinusA, real A, vector v, real s, real tau){
+  
+    int get_pos_drift;	
+    int no_pos_drift;
+    int get_first_pos;
+    vector[num_elements(v)] drift;
+    int max_iter;
+    int iter;
+    array[num_elements(v)] real start;
+    array[num_elements(v)] real ttf;
+    array[num_elements(v)] int resp;
+    real rt;
+    vector[2] pred;
+    real b;
+    
+    //try to get a positive drift rate
+    get_pos_drift = 1;
+    no_pos_drift = 0;
+    max_iter = 1000;
+    iter = 0;
+    while(get_pos_drift){
+      for(j in 1:num_elements(v)){
+        drift[j] = normal_rng(v[j],s);
+        if(drift[j] > 0){
+          get_pos_drift = 0;
+        }
+      }
+      iter = iter + 1;
+      if(iter > max_iter){
+        get_pos_drift = 0;
+        no_pos_drift = 1;
+      }	
+    }
+    //if both drift rates are <= 0
+    //return an infinite response time
+    if(no_pos_drift){
+      pred[1] = -1;
+      pred[2] = -1;
+    }else{
+      b = A + bMinusA;
+      for(i in 1:num_elements(v)){
+        //start time of each accumulator	
+        start[i] = uniform_rng(0,A);
+        //finish times
+        ttf[i] = (b-start[i])/drift[i];
+      }
+      //rt is the fastest accumulator finish time	
+      //if one is negative get the positive drift
+      resp = sort_indices_asc(ttf);
+      ttf = sort_asc(ttf);
+      get_first_pos = 1;
+      iter = 1;
+      while(get_first_pos){
+        if(ttf[iter] > 0){
+          pred[1] = ttf[iter] + tau;
+          pred[2] = resp[iter]; 
+          get_first_pos = 0;
+        }
+        iter = iter + 1;
+      }
+    }
+    return pred;	
+  }
+}
+
+data{
+  int NUM_CHOICES;
+  int N;
+  real lower_cutoff;
+  real upper_cutoff;
+  matrix[N,2] RT;
+}
+transformed data { 
+  real s;
+  real min_rt;
+  s = 1;
+  min_rt = min(RT[,1]);
+}
+
+parameters {
+  real<lower=0> bMinusA;
+  real<lower=0> A;
+  real<lower=0> tau;
+  vector<lower=0>[NUM_CHOICES] v_std;
+}
+
+model {
+  bMinusA ~ normal(.4,.4)T[0,];
+  A ~ normal(1,.5)T[0,];
+  tau ~ normal(0,.1)T[0,min_rt];
+  for(n in 1:NUM_CHOICES) { 
+    v_std[n] ~ normal(0,1)T[-10,];
+    //v[n] ~ normal(1,.1)T[0,];
+  }
+
+  RT ~ lba(bMinusA,A,1+.1*v_std,s,tau,lower_cutoff,upper_cutoff);
+}
